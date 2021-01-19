@@ -39,11 +39,12 @@
 
 #define MY_PARENT_NODE_ID 0
 #define MY_NODE_ID 21
+#define MY_BAUD_RATE 38400
 
 #include <MySensors.h>
 
 // important settings
-#define SLEEP_TIME 2 // Sleep time between reports (in minutes)
+#define SLEEP_TIME 120000 // 2min - Sleep time between reports (in ms)
 #define WINDOW_SENSOR 3   // The digital input you attached your motion sensor.  (Only 2 and 3 generates interrupt!)
 #define STATUS_LED 4
 #define CHILD_ID_WINDOW 1   // Id of the sensor child
@@ -55,7 +56,8 @@
 
 // calculate some variables from settings
 const float difference = MAX_VOLTAGE - MIN_VOLTAGE;
-const uint32_t sleep_time = SLEEP_TIME * 60 * 1000;
+// const uint32_t sleep_time = SLEEP_TIME * 60 * 1000;
+const uint32_t sleep_time = 120000;
 
 // initialize some variables
 bool window_success, voltage_success, percent_success;
@@ -95,17 +97,35 @@ void presentation()
 
 void loop()
 {
+  // Sleep until interrupt from window sensor. Send update perdiodically
+	Serial.println("Sleeping");
+  int8_t x = sleep(digitalPinToInterrupt(WINDOW_SENSOR), CHANGE, SLEEP_TIME);
+	
+  if (x == digitalPinToInterrupt(WINDOW_SENSOR)) 
+    {
+        Serial.println("Wakeup by INT");
+    }
+  
+  else if (x == MY_WAKE_UP_BY_TIMER)
+    {
+        Serial.println("Wakeup by TIMER");
+    }
+  
   // maybe some sleep time to wake up properly
-  // sleep(500);
+  sleep(500);
 
 	// get window state
 	bool open = digitalRead(WINDOW_SENSOR) == HIGH;
 
   // get battery voltage
-  float battery_voltage = analogRead(BATTERY_SENSE_PIN) * VOLTS_PER_BIT;
+  int aR = analogRead(BATTERY_SENSE_PIN);
+  float battery_voltage = aR * VOLTS_PER_BIT;
 
   // calculate battery percent
-  uint8_t battery_percent = 100 * uint8_t((battery_percent - MIN_VOLTAGE) / difference);
+  uint8_t battery_percent = 0;
+  if (battery_voltage > MIN_VOLTAGE){
+    battery_percent = uint8_t(100 * (battery_voltage - MIN_VOLTAGE) / difference);
+  }  
 
 
 	// DEBUG PRINT
@@ -113,18 +133,21 @@ void loop()
     Serial.print("Window state: ");
     Serial.println(open?"open":"closed");
     
+    Serial.print("Battery Read: ");
+    Serial.println(aR);
+    
     Serial.print("Battery Voltage: ");
     Serial.print(battery_voltage, 3);
     Serial.println(" V");
 
     Serial.print("Battery percent: ");
-    Serial.print(battery_percent, 0);
+    Serial.print(battery_percent);
     Serial.println(" %");
   #endif
 
   // SEND TO GATEWAY
 	window_success = send(msg_window.set(open?"1":"0"));
-  voltage_success = send(msg_voltage.set(&battery_voltage, sizeof(battery_voltage)));
+  voltage_success = send(msg_voltage.set(battery_voltage, 3));
   percent_success = sendBatteryLevel(battery_percent);
 
   // trigger status LED after sucessfully sending
@@ -134,6 +157,4 @@ void loop()
     digitalWrite(STATUS_LED, LOW);
   }
 	
-  // Sleep until interrupt from window sensor. Send update perdiodically
-	sleep(digitalPinToInterrupt(WINDOW_SENSOR), CHANGE, SLEEP_TIME);
 }
